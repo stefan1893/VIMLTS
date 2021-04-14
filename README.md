@@ -1,8 +1,11 @@
 # Modeling-of-flexible-Posterior-Distributions-for-Bayesian-Neural-Networks
 
 **Master Thesis**
+
 **HTWG Konstanz, Institute for Optical Systems**
+
 **Author:** Stefan Hörtling
+
 **Description:** The repository contains both sample experiments and the universal VIMLTS Keras layer.
 
 ## Experiments
