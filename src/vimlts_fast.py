@@ -7,7 +7,7 @@ from tensorflow.keras import initializers
 class VimltsLinear(tf.keras.layers.Layer):
     def __init__(self,
                  units: int,
-                 activation: tf.keras.activations,
+                 activation: tf.keras.activations = tf.keras.activations.linear,
                  num_samples: int = 10,
                  kernel_init_alpha_w: initializers = initializers.Constant(1.),
                  kernel_init_beta_w: initializers = initializers.Constant(0.),
@@ -27,11 +27,16 @@ class VimltsLinear(tf.keras.layers.Layer):
             units: number of output neurons
             activation: activation function
             num_samples: Number of samples to approximate KL and expected(NLL)
-            kernel_init_alpha_w: initializer for parameter alpha_w
-            kernel_init_beta_w: initializer for parameter beta_w
-            kernel_init_alpha_z: initializer for parameter alpha_z
-            kernel_init_beta_z: initializer for parameter beta_z
-            kernel_init_thetas: initializer for the parameters of the Bernstein polynomial. Number of initializers defines the degree M.
+            kernel_init_alpha_w: initializer for scale parameter alpha_w
+            kernel_init_beta_w: initializer for shift parameter beta_w
+            kernel_init_alpha_z: initializer for scale parameter alpha_z
+            kernel_init_beta_z: initializer for shift parameter beta_z
+            kernel_init_thetas: initializer for the coefficient of the Bernstein polynomial for kernel parameter. Number of initializers defines the degree M.
+            bias_init_alpha_w: initializer for scale parameter alpha_w (If any of the bias initializers is None, no bias parameter are used)
+            bias_init_beta_w: initializer for shift parameter beta_w
+            bias_init_alpha_z: initializer for scale parameter alpha_z
+            bias_init_beta_z: initializer for shift parameter beta_z
+            bias_init_thetas: initializer for the coefficient of the Bernstein polynomial for bias parameter. Number of initializers defines the degree M.
             prior_dist: prior distribution p(\theta)
         """
         super().__init__()

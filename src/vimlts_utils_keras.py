@@ -4,6 +4,26 @@ import tensorflow_probability as tfp
 tfd=tfp.distributions
 
 
+@tf.function
+def sample_gaus_nll(y_obs, y_pred, sigma=0.5):
+    """
+
+    Args:
+        y_obs: true labels. Expected shape (#batch, 1) or (#batch)
+        y_pred: model prediction. Expected shape (#samples, #batch, 1) or (#samples, #batch)
+
+    Returns: sum of Nll
+
+    """
+    error_str = f"Expected one of the above defined shapes. Got shapes: - y_obs: {y_obs.shape}; - y_pred: {y_pred.shape}"
+    assert y_pred.shape[-1] == y_obs.shape[-1] or ((len(y_pred.shape) == 3) and y_pred.shape[-1] == 1), error_str
+    # if len(y_pred.shape) == 2:  # Bug tf?! If we have a single output it squeezes y_pred. I did not want this behaviour.
+    #     y_pred = y_pred[...,None]
+    dist = tfp.distributions.Normal(loc=y_pred, scale=sigma)
+    nll_per_sample = -dist.log_prob(y_obs)
+    nlls = tf.reduce_mean(nll_per_sample, axis=0)
+    return tf.reduce_sum(nlls)
+
 
 def init_beta_dist(M):
     in1 = []
