@@ -142,15 +142,15 @@ class VIMLTS:
         self.alpha_tilde=lambda_update[self.num_params-2:self.num_params-1]
         self.beta=lambda_update[self.num_params-1:self.num_params]
 
-    def get_target_dist(self):
-        zz=tf.Variable(np.linspace(-6,6,1000),dtype='float32')
+    def get_target_dist(self, num=1000):
+        zz=tf.Variable(np.linspace(-6,6,num),dtype='float32')
         if self.using_epsilon:
             z_epsilon=tf.Variable(zz+self.epsilon)
             q_dist,ww=eval_variational_dist_epsilon(z=zz,z_epsilon=z_epsilon,a=to_a(self.a_tilde), b=self.b, theta=to_theta(self.theta_delta), alpha=to_alpha(self.alpha_tilde), beta=self.beta, beta_dist=self.beta_dist)
         else:
             q_dist,ww=eval_variational_dist(z=zz,a=to_a(self.a_tilde), b=self.b, theta=to_theta(self.theta_delta), alpha=to_alpha(self.alpha_tilde), beta=self.beta, beta_dist=self.beta_dist)
         return q_dist,ww
-    
+
     def get_target_dist_for_z(self,z):
         if self.using_epsilon:
             z_epsilon=tf.Variable(z+self.epsilon)
@@ -158,7 +158,7 @@ class VIMLTS:
         else:
             q_dist,ww=eval_variational_dist(z=z,a=to_a(self.a_tilde), b=self.b, theta=to_theta(self.theta_delta), alpha=to_alpha(self.alpha_tilde), beta=self.beta, beta_dist=self.beta_dist)
 
-        return q_dist
+        return q_dist, ww
 
     def get_sample_w(self):
         z_sample = tfd.Normal(loc=0., scale=1.).sample()
