@@ -1,31 +1,48 @@
 import tensorflow as tf
 from tensorflow_probability import distributions as tfd
 import tensorflow_probability as tfp
+from tensorflow.keras import initializers
 
 
 class VimltsLinear(tf.keras.layers.Layer):
     def __init__(self,
-                 units,
-                 activation,
-                 alpha_w=1.,
-                 beta_w=0.,
-                 alpha_z=1.,
-                 beta_z=0.,
-                 theta=[],
-                 num_samples=10,
-                 prior_dist=tfd.Normal(loc=0., scale=1.)):
+                 units: int,
+                 activation: tf.keras.activations,
+                 num_samples: int = 10,
+                 kernel_init_alpha_w: initializers = initializers.Constant(1.),
+                 kernel_init_beta_w: initializers = initializers.Constant(0.),
+                 kernel_init_alpha_z: initializers = initializers.Constant(1.),
+                 kernel_init_beta_z: initializers = initializers.Constant(0.),
+                 kernel_init_thetas: list = [initializers.RandomNormal(mean=0., stddev=1.),
+                                             initializers.RandomNormal(mean=0., stddev=1.)],
+                 prior_dist: object = tfd.Normal(loc=0., scale=1.)) -> object:
+        """
+
+        Args:
+            units: number of output neurons
+            activation: activation function
+            num_samples: Number of samples to approximate KL and expected(NLL)
+            kernel_init_alpha_w: initializer for parameter alpha_w
+            kernel_init_beta_w: initializer for parameter beta_w
+            kernel_init_alpha_z: initializer for parameter alpha_z
+            kernel_init_beta_z: initializer for parameter beta_z
+            kernel_init_thetas: initializer for the parameters of the Bernstein polynomial. Number of initializers defines the degree M.
+            prior_dist: prior distribution p(\theta)
+        """
         super().__init__()
-        self.alpha_w_init = alpha_w
-        self.beta_w_init = beta_w
-        self.alpha_z_init = alpha_z
-        self.beta_z_init = beta_z
-        self.theta_init = theta
         self.units_ = units
-        self.num_samples_ = num_samples
-        self.prior_dist_ = prior_dist
-        self.beta_dist = self.init_beta_dist(len(theta))
-        self.z_dist_ = None
         self.activation_ = activation
+        self.num_samples_ = num_samples
+        # initializers for parameters
+        self.k_alpha_w_ = kernel_init_alpha_w
+        self.k_beta_w_ = kernel_init_beta_w
+        self.k_alpha_z_ = kernel_init_alpha_z
+        self.k_beta_z_ = kernel_init_beta_z
+        self.k_thetas = kernel_init_thetas
+
+        self.prior_dist_ = prior_dist
+        self.beta_dist = self.init_beta_dist(len(kernel_init_thetas))
+        self.z_dist_ = None
 
     @staticmethod
     def init_beta_dist(M):
@@ -49,26 +66,23 @@ class VimltsLinear(tf.keras.layers.Layer):
                                   scale=tf.ones((input_shape[1], self.units_)))
         self.alpha_w = self.add_weight(name='alpha_w',
                                        shape=(input_shape[1], self.units_),
-                                       initializer=tf.constant_initializer(self.alpha_w_init),
+                                       initializer=self.k_alpha_w_,
                                        trainable=True)
         self.beta_w = self.add_weight(name='beta_w',
                                       shape=(input_shape[1], self.units_),
-                                      initializer=tf.constant_initializer(self.beta_w_init),
+                                      initializer=self.k_beta_w_,
                                       trainable=True)
         self.alpha_z = self.add_weight(name='alpha_z',
                                        shape=(input_shape[1], self.units_),
-                                       initializer=tf.constant_initializer(self.alpha_z_init),
+                                       initializer=self.k_alpha_z_,
                                        trainable=True)
         self.beta_z = self.add_weight(name='beta_z',
                                       shape=(input_shape[1], self.units_),
-                                      initializer=tf.constant_initializer(self.beta_z_init),
+                                      initializer=self.k_beta_z_,
                                       trainable=True)
 
-
-        # theta_prime = tf.tile(self.theta_init, [input_shape[1] * self.units_])
-        # theta_prime = tf.reshape(theta_prime, (input_shape[1], self.units_, len(self.theta_init)))
         shape = (input_shape[1], self.units_)
-        theta_prime = tf.stack([i(shape=shape) for i in theta_initializer], axis=2)
+        theta_prime = tf.stack([i(shape=shape) for i in self.k_thetas], axis=2)
         self.theta_prime = tf.Variable(initial_value=theta_prime, trainable=True)
         super().build(input_shape)
 
@@ -145,7 +159,7 @@ class VimltsLinear(tf.keras.layers.Layer):
             log_p_out = self.prior_dist_.log_prob(out)
             log_q_out = log_q_w + self.activation_.inverse_log_det_jacobian(out, event_ndims=0)
             # kl = tf.reduce_sum(tf.reduce_mean(log_q_out, 0)) - tf.reduce_sum(tf.reduce_mean(log_p_out, 0))
-            kl = tf.reduce_sum(tf.reduce_mean(log_q_out, (0,1))) - tf.reduce_sum(tf.reduce_mean(log_p_out, (0,1)))
+            kl = tf.reduce_sum(tf.reduce_mean(log_q_out, (0, 1))) - tf.reduce_sum(tf.reduce_mean(log_p_out, (0, 1)))
         else:
             log_p_w = self.prior_dist_.log_prob(w)
             kl = tf.reduce_sum(tf.reduce_mean(log_q_w, 0)) - tf.reduce_sum(tf.reduce_mean(log_p_w, 0))

@@ -90,14 +90,25 @@ def h_w2z_fake_inverse_taylor(w_to_inverse, a, b, theta, alpha, beta, beta_dist,
 
     return z_fake
 
-@tf.function
+# @tf.function
 def eval_variational_dist(z, z_epsilon, a, b, theta, alpha, beta, beta_dist, beta_dist_dash):
     fz=tfd.Normal(loc=0,scale=1).prob(z)
     w=h_z2w(z=z,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
     w_epsilon=h_z2w(z=z_epsilon,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
     h_w2z_dash=(z_epsilon-z)/(w_epsilon-w)
     q=fz*tf.math.abs(h_w2z_dash)
-    return q,w 
+    return q,w
+
+
+# def eval_variational_dist(z, z_epsilon, a, b, theta, alpha, beta, beta_dist, beta_dist_dash):
+#     fz=tfd.Normal(loc=0,scale=1).prob(z)
+#     with tf.GradientTape() as tape:
+#         tape.watch([z]) #Bug in TF? We need to watch z otherwise it does not work
+#         w=h_z2w(z=z,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
+#         dw_dz = tape.gradient(w, z)
+#     h_w2z_dash = 1.0 / dw_dz
+#     q=fz*tf.math.abs(h_w2z_dash)
+#     return q,w
 
 def to_a(a_tunable):
     return tf.math.softplus(a_tunable[0:1])
@@ -130,18 +141,18 @@ class VIMLTS:
         self.alpha_tilde=lambda_update[self.num_params-2:self.num_params-1]
         self.beta=lambda_update[self.num_params-1:self.num_params]
 
-    def get_target_dist(self):
-        zz=tf.Variable(np.linspace(-6,6,1000),dtype='float32')
+    def get_target_dist(self, num=1000):
+        zz=tf.Variable(np.linspace(-6,6,num),dtype='float32')
         epsilon=tf.constant(0.001)
         z_epsilon=tf.Variable(zz+epsilon)
         q_dist,ww=eval_variational_dist(z=zz,z_epsilon=z_epsilon,a=to_a(self.a_tilde), b=self.b, theta=to_theta(self.theta_delta), alpha=to_alpha(self.alpha_tilde), beta=self.beta, beta_dist=self.beta_dist, beta_dist_dash=self.beta_dist_dash)
         return q_dist,ww
-    
+
     def get_target_dist_for_z(self,z):
         epsilon=tf.constant(0.001)
         z_epsilon=tf.Variable(z+epsilon)
         q_dist,ww=eval_variational_dist(z=z,z_epsilon=z_epsilon,a=to_a(self.a_tilde), b=self.b, theta=to_theta(self.theta_delta), alpha=to_alpha(self.alpha_tilde), beta=self.beta, beta_dist=self.beta_dist, beta_dist_dash=self.beta_dist_dash)
-        return q_dist
+        return q_dist, ww
 
     def get_sample_w(self):
         z_sample = tfd.Normal(loc=0., scale=1.).sample()

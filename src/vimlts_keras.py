@@ -1,9 +1,9 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import sys
-from keras.layers import Layer
-from keras import activations, initializers
-from keras import backend as K
+from tensorflow.keras.layers import Layer
+from tensorflow.keras import activations, initializers
+from tensorflow.keras import backend as K
 sys.path.append('../src')
 import vimlts_utils_keras as VIMLTS_utils
 
