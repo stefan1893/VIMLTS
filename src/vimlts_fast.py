@@ -15,6 +15,11 @@ class VimltsLinear(tf.keras.layers.Layer):
                  kernel_init_beta_z: initializers = initializers.Constant(0.),
                  kernel_init_thetas: list = [initializers.RandomNormal(mean=0., stddev=1.),
                                              initializers.RandomNormal(mean=0., stddev=1.)],
+                 bias_init_alpha_w: initializers = None,
+                 bias_init_beta_w: initializers = None,
+                 bias_init_alpha_z: initializers = None,
+                 bias_init_beta_z: initializers = None,
+                 bias_init_thetas: list = None,
                  prior_dist: object = tfd.Normal(loc=0., scale=1.)) -> object:
         """
 
@@ -38,11 +43,32 @@ class VimltsLinear(tf.keras.layers.Layer):
         self.k_beta_w_ = kernel_init_beta_w
         self.k_alpha_z_ = kernel_init_alpha_z
         self.k_beta_z_ = kernel_init_beta_z
-        self.k_thetas = kernel_init_thetas
+        self.k_thetas_ = kernel_init_thetas
+        self.k_beta_dist = self.init_beta_dist(len(kernel_init_thetas))
+
+        if (bias_init_thetas is None) or \
+                (bias_init_beta_z is None) or \
+                (bias_init_alpha_z is None) or \
+                (bias_init_beta_w is None) or \
+                (bias_init_alpha_w is None):
+            self.use_bias = False
+        else:
+            self.use_bias = True
+            self.b_alpha_w_ = bias_init_alpha_w
+            self.b_beta_w_ = bias_init_beta_w
+            self.b_alpha_z_ = bias_init_alpha_z
+            self.b_beta_z_ = bias_init_beta_z
+            self.b_thetas_ = bias_init_thetas
+            self.b_beta_dist = self.init_beta_dist(len(bias_init_thetas))
 
         self.prior_dist_ = prior_dist
-        self.beta_dist = self.init_beta_dist(len(kernel_init_thetas))
         self.z_dist_ = None
+        self.alpha_w = None
+        self.beta_w = None
+        self.alpha_z = None
+        self.beta_z = None
+        self.theta_prime = None
+        self.beta_dist = None
 
     @staticmethod
     def init_beta_dist(M):
@@ -62,29 +88,67 @@ class VimltsLinear(tf.keras.layers.Layer):
         """
 
         # Kernel
-        self.z_dist_ = tfd.Normal(loc=tf.zeros((input_shape[1], self.units_)),
-                                  scale=tf.ones((input_shape[1], self.units_)))
-        self.alpha_w = self.add_weight(name='alpha_w',
-                                       shape=(input_shape[1], self.units_),
-                                       initializer=self.k_alpha_w_,
-                                       trainable=True)
-        self.beta_w = self.add_weight(name='beta_w',
-                                      shape=(input_shape[1], self.units_),
-                                      initializer=self.k_beta_w_,
-                                      trainable=True)
-        self.alpha_z = self.add_weight(name='alpha_z',
-                                       shape=(input_shape[1], self.units_),
-                                       initializer=self.k_alpha_z_,
-                                       trainable=True)
-        self.beta_z = self.add_weight(name='beta_z',
-                                      shape=(input_shape[1], self.units_),
-                                      initializer=self.k_beta_z_,
-                                      trainable=True)
-
         shape = (input_shape[1], self.units_)
-        theta_prime = tf.stack([i(shape=shape) for i in self.k_thetas], axis=2)
-        self.theta_prime = tf.Variable(initial_value=theta_prime, trainable=True)
+        self.z_dist_ = tfd.Normal(loc=tf.zeros(shape),
+                                  scale=tf.ones(shape))
+        self.k_alpha_w = self.add_weight(name='k_alpha_w',
+                                         shape=shape,
+                                         initializer=self.k_alpha_w_,
+                                         trainable=True)
+        self.k_beta_w = self.add_weight(name='k_beta_w',
+                                        shape=shape,
+                                        initializer=self.k_beta_w_,
+                                        trainable=True)
+        self.k_alpha_z = self.add_weight(name='k_alpha_z',
+                                         shape=shape,
+                                         initializer=self.k_alpha_z_,
+                                         trainable=True)
+        self.k_beta_z = self.add_weight(name='k_beta_z',
+                                        shape=shape,
+                                        initializer=self.k_beta_z_,
+                                        trainable=True)
+        theta_prime = tf.stack([i(shape=shape) for i in self.k_thetas_], axis=-1)
+        self.k_theta_prime = tf.Variable(initial_value=theta_prime, trainable=True)
+
+        if self.use_bias:
+            shape = (self.units_,)
+            self.b_z_dist_ = tfd.Normal(loc=tf.zeros(shape),
+                                        scale=tf.ones(shape))
+            self.b_alpha_w = self.add_weight(name='b_alpha_w',
+                                             shape=shape,
+                                             initializer=self.b_alpha_w_,
+                                             trainable=True)
+            self.b_beta_w = self.add_weight(name='b_beta_w',
+                                            shape=shape,
+                                            initializer=self.b_beta_w_,
+                                            trainable=True)
+            self.b_alpha_z = self.add_weight(name='b_alpha_z',
+                                             shape=shape,
+                                             initializer=self.b_alpha_z_,
+                                             trainable=True)
+            self.b_beta_z = self.add_weight(name='b_beta_z',
+                                            shape=shape,
+                                            initializer=self.b_beta_z_,
+                                            trainable=True)
+            b_theta_prime = tf.stack([i(shape=shape) for i in self.b_thetas_], axis=-1)
+            self.b_theta_prime = tf.Variable(initial_value=b_theta_prime, trainable=True)
         super().build(input_shape)
+
+    def activate_bias_transformation(self):
+        self.alpha_w = self.b_alpha_w
+        self.beta_w = self.b_beta_w
+        self.alpha_z = self.b_alpha_z
+        self.beta_z = self.b_beta_z
+        self.theta_prime = self.b_theta_prime
+        self.beta_dist = self.b_beta_dist
+
+    def activate_kernel_transformation(self):
+        self.alpha_w = self.k_alpha_w
+        self.beta_w = self.k_beta_w
+        self.alpha_z = self.k_alpha_z
+        self.beta_z = self.k_beta_z
+        self.theta_prime = self.k_theta_prime
+        self.beta_dist = self.k_beta_dist
 
     def f_1(self, z):
         """
@@ -125,6 +189,7 @@ class VimltsLinear(tf.keras.layers.Layer):
         with tf.GradientTape() as tape:
             zz = tf.dtypes.cast(tf.reshape(tf.linspace(-6, 6, num), shape=(-1, 1, 1)), tf.float32)
             tape.watch(zz)
+            self.activate_kernel_transformation()
             w = self.f_3(self.f_2(self.f_1(zz)))
             dw_dz = tape.gradient(w, zz)
         # tf.reduce_prod(w.shape[1:]) -> undo gradiant adding because of zz broadcasting
@@ -143,11 +208,23 @@ class VimltsLinear(tf.keras.layers.Layer):
         with tf.GradientTape() as tape:
             z = self.z_dist_.sample(self.num_samples_)
             tape.watch(z)
+            self.activate_kernel_transformation()
             w = self.f_3(self.f_2(self.f_1(z)))
             dw_dz = tape.gradient(w, z)
 
+        with tf.GradientTape() as tape:
+            if self.use_bias:
+                zb = self.b_z_dist_.sample(self.num_samples_)
+                tape.watch(zb)
+                self.activate_bias_transformation()
+                b = self.f_3(self.f_2(self.f_1(zb)))
+                db_dz = tape.gradient(b, zb)
+
         # inputs (batch, in); w (sample, in ,out)
-        out = self.activation_(inputs @ w)
+        if self.use_bias:
+            out = self.activation_(inputs @ w + b[:, None, :])
+        else:
+            out = self.activation_(inputs @ w)
 
         # compute kl divergence
         # change of variable ==> p(w) = p(z)/|dw/dz|
@@ -163,6 +240,14 @@ class VimltsLinear(tf.keras.layers.Layer):
         else:
             log_p_w = self.prior_dist_.log_prob(w)
             kl = tf.reduce_sum(tf.reduce_mean(log_q_w, 0)) - tf.reduce_sum(tf.reduce_mean(log_p_w, 0))
+        if self.use_bias:
+            # compute kl divergence for bias term
+            # change of variable ==> p(w) = p(z)/|dw/dz|
+            b_log_p_z = self.b_z_dist_.log_prob(zb)
+            # log rules ==> log(p(w)) = log(p(z)) - log(|dw/dz|)
+            b_log_q_w = b_log_p_z - tf.math.log(tf.math.abs(db_dz))
+            b_log_p_w = self.prior_dist_.log_prob(b)
+            kl += tf.reduce_sum(tf.reduce_mean(b_log_q_w, 0)) - tf.reduce_sum(tf.reduce_mean(b_log_p_w, 0))
         self.add_loss(kl)
         # tf.print("KL: ", kl)
         return out
