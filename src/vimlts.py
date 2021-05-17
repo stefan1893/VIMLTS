@@ -46,7 +46,6 @@ def eval_h_MLT_dash(z, theta, beta_dist_dash):
     bern_dash=tf.reduce_sum(by*d_Theta,axis=1)
     return bern_dash
 
-@tf.function
 def h_z2w(z, a, b, theta, alpha, beta, beta_dist):
     z_tilde=a*z-b
     z_sig=tf.math.sigmoid(z_tilde)
@@ -90,25 +89,25 @@ def h_w2z_fake_inverse_taylor(w_to_inverse, a, b, theta, alpha, beta, beta_dist,
 
     return z_fake
 
-# @tf.function
+# Method using derivation
 def eval_variational_dist(z, z_epsilon, a, b, theta, alpha, beta, beta_dist, beta_dist_dash):
     fz=tfd.Normal(loc=0,scale=1).prob(z)
-    w=h_z2w(z=z,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
-    w_epsilon=h_z2w(z=z_epsilon,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
-    h_w2z_dash=(z_epsilon-z)/(w_epsilon-w)
+    with tf.GradientTape() as tape:
+        tape.watch([z])
+        w=h_z2w(z=z,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
+        dw_dz = tape.gradient(w, z)
+    h_w2z_dash = 1.0 / dw_dz
     q=fz*tf.math.abs(h_w2z_dash)
     return q,w
 
-
+# Method using epsilon
 # def eval_variational_dist(z, z_epsilon, a, b, theta, alpha, beta, beta_dist, beta_dist_dash):
 #     fz=tfd.Normal(loc=0,scale=1).prob(z)
-#     with tf.GradientTape() as tape:
-#         tape.watch([z]) #Bug in TF? We need to watch z otherwise it does not work
-#         w=h_z2w(z=z,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
-#         dw_dz = tape.gradient(w, z)
-#     h_w2z_dash = 1.0 / dw_dz
+#     w=h_z2w(z=z,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
+#     w_epsilon=h_z2w(z=z_epsilon,a=a,b=b,theta=theta,alpha=alpha,beta=beta,beta_dist=beta_dist)
+#     h_w2z_dash=(z_epsilon-z)/(w_epsilon-w)
 #     q=fz*tf.math.abs(h_w2z_dash)
-#     return q,w
+#     return q,w 
 
 def to_a(a_tunable):
     return tf.math.softplus(a_tunable[0:1])
