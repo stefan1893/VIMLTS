@@ -20,7 +20,8 @@ class VimltsLinear(tf.keras.layers.Layer):
                  bias_init_alpha_z: initializers = None,
                  bias_init_beta_z: initializers = None,
                  bias_init_thetas: list = None,
-                 prior_dist: object = tfd.Normal(loc=0., scale=1.)) -> object:
+                 prior_dist: object = tfd.Normal(loc=0., scale=1.),
+                 **kwargs) -> object:
         """
 
         Args:
@@ -39,7 +40,6 @@ class VimltsLinear(tf.keras.layers.Layer):
             bias_init_thetas: initializer for the coefficient of the Bernstein polynomial for bias parameter. Number of initializers defines the degree M.
             prior_dist: prior distribution p(\theta)
         """
-        super().__init__()
         self.units_ = units
         self.activation_ = activation
         self.num_samples_ = num_samples
@@ -74,6 +74,7 @@ class VimltsLinear(tf.keras.layers.Layer):
         self.beta_z = None
         self.theta_prime = None
         self.beta_dist = None
+        super().__init__(**kwargs)
 
     @staticmethod
     def init_beta_dist(M):
@@ -201,7 +202,7 @@ class VimltsLinear(tf.keras.layers.Layer):
         dw_dz /= tf.cast(tf.reduce_prod(w.shape[1:]), dtype=tf.float32)
         log_p_z = self.z_dist_.log_prob(zz)
         log_q_w = log_p_z - tf.math.log(tf.math.abs(dw_dz))
-        return tf.math.exp(log_q_w).numpy(), w.numpy()
+        return tf.math.exp(log_q_w).numpy().squeeze(), w.numpy().squeeze()
 
     def call(self, inputs, **kwargs):
         """
@@ -236,15 +237,15 @@ class VimltsLinear(tf.keras.layers.Layer):
         log_p_z = self.z_dist_.log_prob(z)
         # log rules ==> log(p(w)) = log(p(z)) - log(|dw/dz|)
         log_q_w = log_p_z - tf.math.log(tf.math.abs(dw_dz))
+        kl = tf.constant(0.)
         if isinstance(self.activation_, tfp.bijectors.Bijector):
-            print("YES activation is Bijector")
             log_p_out = self.prior_dist_.log_prob(out)
             log_q_out = log_q_w + self.activation_.inverse_log_det_jacobian(out, event_ndims=0)
             # kl = tf.reduce_sum(tf.reduce_mean(log_q_out, 0)) - tf.reduce_sum(tf.reduce_mean(log_p_out, 0))
-            kl = tf.reduce_sum(tf.reduce_mean(log_q_out, (0, 1))) - tf.reduce_sum(tf.reduce_mean(log_p_out, (0, 1)))
+            kl += tf.reduce_sum(tf.reduce_mean(log_q_out, (0, 1))) - tf.reduce_sum(tf.reduce_mean(log_p_out, (0, 1)))
         else:
             log_p_w = self.prior_dist_.log_prob(w)
-            kl = tf.reduce_sum(tf.reduce_mean(log_q_w, 0)) - tf.reduce_sum(tf.reduce_mean(log_p_w, 0))
+            kl += tf.reduce_sum(tf.reduce_mean(log_q_w, 0)) - tf.reduce_sum(tf.reduce_mean(log_p_w, 0))
         if self.use_bias:
             # compute kl divergence for bias term
             # change of variable ==> p(w) = p(z)/|dw/dz|
@@ -254,5 +255,64 @@ class VimltsLinear(tf.keras.layers.Layer):
             b_log_p_w = self.prior_dist_.log_prob(b)
             kl += tf.reduce_sum(tf.reduce_mean(b_log_q_w, 0)) - tf.reduce_sum(tf.reduce_mean(b_log_p_w, 0))
         self.add_loss(kl)
+        # self.add_loss(0.)
         # tf.print("KL: ", kl)
         return out
+
+
+class ConjungateDenseViGauss(tf.keras.layers.Layer):
+    def __init__(self,
+                 units,
+                 activation: tf.keras.activations = tf.keras.activations.linear,
+                 num_samples: int = 10,
+                 kernel_init_mu_w: initializers = initializers.Constant(0.),
+                 kernel_init_rhosigma_w: initializers = initializers.Constant(0.5),
+                 prior_dist: object = tfd.Normal(loc=0., scale=1.),
+                 **kwargs):
+        self.units_ = units
+        self.activation_ = activation
+        self.num_samples_ = num_samples
+        self.kernel_init_mu_w_ = kernel_init_mu_w
+        self.kernel_init_rhosigma_w_ = kernel_init_rhosigma_w
+        self.prior_dist_ = prior_dist
+        super().__init__(**kwargs)
+
+    # def compute_output_shape(self, input_shape):
+    #     return (self.num_samples_, input_shape[0], -1)
+
+    def build(self, input_shape):
+        self.kernel_mu = self.add_weight(name='kernel_mu',
+                                         shape=(input_shape[1], self.units_),
+                                         initializer=self.kernel_init_mu_w_,
+                                         trainable=True)
+        self.kernel_rho = self.add_weight(name='kernel_rho',
+                                       shape=(input_shape[1], self.units_),
+                                       initializer=self.kernel_init_rhosigma_w_,
+                                       trainable=True)
+        super().build(input_shape)
+
+    def call(self, inputs, **kwargs):
+        kernel_sigma = tf.math.softplus(self.kernel_rho)
+        q_dist = tfd.Normal(loc=self.kernel_mu, scale=kernel_sigma)
+        wq = q_dist.sample(self.num_samples_)
+        out = self.activation_(inputs @ wq)
+
+        log_q_w = q_dist.log_prob(wq)
+        if isinstance(self.activation_, tfp.bijectors.Bijector):
+            log_p_out = self.prior_dist_.log_prob(out)
+            log_q_out = log_q_w + self.activation_.inverse_log_det_jacobian(out, event_ndims=0)
+            kl = tf.reduce_sum(tf.reduce_mean(log_q_out, (0, 1))) - tf.reduce_sum(tf.reduce_mean(log_p_out, (0, 1)))
+        else:
+            log_p_w = self.prior_dist_.log_prob(wq)
+            kl = tf.reduce_sum(tf.reduce_mean(log_q_w, (0))) - tf.reduce_sum(tf.reduce_mean(log_p_w, (0)))
+        self.add_loss(kl)
+        return out
+
+    def get_w_dist(self):
+        mu = self.kernel_mu
+        sigma = tf.math.softplus(self.kernel_rho)
+        print(f"VI Gaus with: N({mu},{sigma})")
+        dist = tfd.Normal(mu, sigma)
+        w_sample = tf.sort(tf.squeeze(dist.sample(1000)))
+        q_w = dist.prob(w_sample)
+        return q_w.numpy().squeeze(), w_sample.numpy().squeeze()
