@@ -175,7 +175,7 @@ class VimltsLinear(tf.keras.layers.Layer):
         theta_p = tf.concat((theta_p[..., 0:1], tf.math.softplus(theta_p[..., 1:])), axis=-1)
 
         n = theta_p.shape[-1]
-        tf.ones((n * (n + 1) // 2))
+        # tf.ones((n * (n + 1) // 2))
         m_triangle = tfp.math.fill_triangular(tf.ones(n * (n + 1) // 2), upper=True)
 
         theta = theta_p @ m_triangle
