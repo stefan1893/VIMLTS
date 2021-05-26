@@ -308,11 +308,11 @@ class ConjungateDenseViGauss(tf.keras.layers.Layer):
         self.add_loss(kl)
         return out
 
-    def get_w_dist(self):
+    def get_w_dist(self, num=1000):
         mu = self.kernel_mu
         sigma = tf.math.softplus(self.kernel_rho)
         print(f"VI Gaus with: N({mu},{sigma})")
         dist = tfd.Normal(mu, sigma)
-        w_sample = tf.sort(tf.squeeze(dist.sample(1000)))
+        w_sample = tf.sort(tf.squeeze(dist.sample(num)))
         q_w = dist.prob(w_sample)
         return q_w.numpy().squeeze(), w_sample.numpy().squeeze()
